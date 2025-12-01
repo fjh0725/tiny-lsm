@@ -1,10 +1,13 @@
 #include "../../include/skiplist/skiplist.h"
 #include <cstdint>
 #include <iostream>
+#include <memory>
+#include <shared_mutex>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace tiny_lsm {
 
@@ -59,7 +62,33 @@ int SkipList::random_level() {
   // ? - 确保层数分布为：第1层100%，第2层50%，第3层25%，以此类推
   // ? - 层数范围限制在[1, max_level]之间，避免浪费内存
   // TODO: Lab1.1 任务：插入时随机为这一次操作确定其最高连接的链表层数
-  return 0;
+  int res  = 1;
+  unsigned int tmp = dis_level(gen);
+  while ((tmp & 1) == 1 && res < max_level) {
+    res++;
+    tmp >>= 1;
+  }
+  return res;
+}
+
+void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::shared_ptr<SkipListNode> target) {
+  auto cur = head;
+  for (int level = current_level - 1; level >= 0; level --) {
+  while(cur->forward_[level] != nullptr && cur->forward_[level] < target) {
+      cur = cur->forward_[level];
+    }
+    prev[level] = cur;
+  }
+}
+
+void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::string target){
+  auto cur = head;
+  for (int level = current_level - 1; level >= 0; level --) {
+  while(cur->forward_[level] != nullptr && cur->forward_[level]->key_ < target) {
+      cur = cur->forward_[level];
+    }
+    prev[level] = cur;
+  }
 }
 
 // 插入或更新键值对
@@ -71,6 +100,16 @@ void SkipList::put(const std::string &key, const std::string &value,
   // ? Hint: 你需要保证不同`Level`的步长从底层到高层逐渐增加
   // ? 你可能需要使用到`random_level`函数以确定层数, 其注释中为你提供一种思路
   // ? tranc_id 为事务id, 现在你不需要关注它, 直接将其传递到 SkipListNode 的构造函数中即可
+  int genLevel = random_level();
+  current_level = std::max(current_level, genLevel);
+  auto tmp = std::make_shared<SkipListNode>(key, value,genLevel,tranc_id);
+  auto prevs = std::vector<std::shared_ptr<SkipListNode>>(max_level, head);
+  FindLessThan(prevs, tmp);
+  for (int i = genLevel - 1; i >= 0; i --) {
+    tmp->forward_[i] = prevs[i]->forward_[i];
+    prevs[i]->forward_[i] = tmp;
+    tmp->backward_[i] = prevs[i];
+  }
 }
 
 // 查找键值对
@@ -80,6 +119,12 @@ SkipListIterator SkipList::get(const std::string &key, uint64_t tranc_id) {
   // ? 日志为输出到你执行二进制所在目录下的log文件夹
 
   // TODO: Lab1.1 任务：实现查找键值对,
+  auto tmp = std::make_shared<SkipListNode>(key, nullptr,0,tranc_id);
+  auto prevs = std::vector<std::shared_ptr<SkipListNode>>(max_level, head);
+  FindLessThan(prevs, tmp);
+  if(prevs[0]->forward_[0] != nullptr && prevs[0]->forward_[0]->key_ == key) {
+    return SkipListIterator(prevs[0]->forward_[0]);
+  }
   // TODO: 并且你后续需要额外实现SkipListIterator中的TODO部分(Lab1.2)
   return SkipListIterator{};
 }
@@ -89,6 +134,22 @@ SkipListIterator SkipList::get(const std::string &key, uint64_t tranc_id) {
 // ! 这里只是为了实现完整的 SkipList 不会真正被上层调用
 void SkipList::remove(const std::string &key) {
   // TODO: Lab1.1 任务：实现删除键值对
+  auto prevs = std::vector<std::shared_ptr<SkipListNode>>(max_level, head);
+  FindLessThan(prevs, key);
+  if(prevs[0]->forward_[0] == nullptr || prevs[0]->forward_[0]->key_ != key) {
+    return;
+  }
+  auto curr = prevs[0]->forward_[0];
+  for (int i = 0; i < current_level; i ++) {
+    if (prevs[i]->forward_[i] != curr) {
+      break;
+    }
+    prevs[i]->forward_[i] = curr->forward_[i];
+    curr->forward_[i]->backward_[i] =  prevs[i];
+  }
+  while(current_level > 1 && head->forward_[current_level - 1] == nullptr) {
+    current_level --;
+  }
 }
 
 // 刷盘时可以直接遍历最底层链表
