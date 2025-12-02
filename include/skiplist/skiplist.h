@@ -117,8 +117,8 @@ public:
     // std::unique_lock<std::shared_mutex> lock(rw_mutex);
     // ... 清理资源
   }
-  void FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::shared_ptr<SkipListNode> target);
-  void FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::string target);
+  void FindLessThan(std::vector<std::shared_ptr<SkipListNode>> &prev, std::shared_ptr<SkipListNode> target);
+  void FindLessThan(std::vector<std::shared_ptr<SkipListNode>> &prev, const std::string &target);
   // 插入或更新键值对
   // 这里不对 tranc_id 进行检查，由上层保证 tranc_id 的合法性
   void put(const std::string &key, const std::string &value, uint64_t tranc_id);

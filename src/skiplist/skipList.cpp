@@ -1,4 +1,5 @@
 #include "../../include/skiplist/skiplist.h"
+#include <csignal>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -71,20 +72,20 @@ int SkipList::random_level() {
   return res;
 }
 
-void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::shared_ptr<SkipListNode> target) {
+void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> &prev, std::shared_ptr<SkipListNode> target) {
   auto cur = head;
   for (int level = current_level - 1; level >= 0; level --) {
-  while(cur->forward_[level] != nullptr && cur->forward_[level] < target) {
+    while(cur->forward_[level] != nullptr && *cur->forward_[level] < *target) {
       cur = cur->forward_[level];
     }
     prev[level] = cur;
   }
 }
 
-void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std::string target){
+void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> &prev, const std::string &target){
   auto cur = head;
   for (int level = current_level - 1; level >= 0; level --) {
-  while(cur->forward_[level] != nullptr && cur->forward_[level]->key_ < target) {
+    while(cur->forward_[level] != nullptr && cur->forward_[level]->key_ < target) {
       cur = cur->forward_[level];
     }
     prev[level] = cur;
@@ -95,20 +96,30 @@ void SkipList::FindLessThan(std::vector<std::shared_ptr<SkipListNode>> prev, std
 void SkipList::put(const std::string &key, const std::string &value,
                    uint64_t tranc_id) {
   spdlog::trace("SkipList--put({}, {}, {})", key, value, tranc_id);
-
+  
   // TODO: Lab1.1  任务：实现插入或更新键值对
   // ? Hint: 你需要保证不同`Level`的步长从底层到高层逐渐增加
   // ? 你可能需要使用到`random_level`函数以确定层数, 其注释中为你提供一种思路
   // ? tranc_id 为事务id, 现在你不需要关注它, 直接将其传递到 SkipListNode 的构造函数中即可
   int genLevel = random_level();
-  current_level = std::max(current_level, genLevel);
-  auto tmp = std::make_shared<SkipListNode>(key, value,genLevel,tranc_id);
+  auto tmp = std::make_shared<SkipListNode>(key, value, genLevel, tranc_id);
   auto prevs = std::vector<std::shared_ptr<SkipListNode>>(max_level, head);
   FindLessThan(prevs, tmp);
+  current_level = std::max(current_level, genLevel);
+  if (prevs[0]->forward_[0] != nullptr && prevs[0]->forward_[0]->key_ == key && prevs[0]->forward_[0]->tranc_id_ == tranc_id) {
+    prevs[0]->forward_[0]->value_ = value;
+    size_bytes += value.size() - prevs[0]->forward_[0]->value_.size();
+    return;
+  } else {
+    size_bytes += key.size() + value.size() + sizeof(uint64_t);
+  }
+  
   for (int i = genLevel - 1; i >= 0; i --) {
     tmp->forward_[i] = prevs[i]->forward_[i];
+    if (prevs[i]->forward_[i] != nullptr)
+      prevs[i]->forward_[i]->set_backward(i, tmp);
     prevs[i]->forward_[i] = tmp;
-    tmp->backward_[i] = prevs[i];
+    tmp->set_backward(i, prevs[i]);
   }
 }
 
@@ -117,12 +128,14 @@ SkipListIterator SkipList::get(const std::string &key, uint64_t tranc_id) {
   // spdlog::trace("SkipList--get({}) called", key);
   // ? 你可以参照上面的注释完成日志输出以便于调试
   // ? 日志为输出到你执行二进制所在目录下的log文件夹
-
   // TODO: Lab1.1 任务：实现查找键值对,
-  auto tmp = std::make_shared<SkipListNode>(key, nullptr,0,tranc_id);
+  auto tmp = std::make_shared<SkipListNode>(key, "", 0, tranc_id);
   auto prevs = std::vector<std::shared_ptr<SkipListNode>>(max_level, head);
   FindLessThan(prevs, tmp);
-  if(prevs[0]->forward_[0] != nullptr && prevs[0]->forward_[0]->key_ == key) {
+
+  auto curr = prevs[0]->forward_[0];
+  if(curr != nullptr && curr->key_ == key && curr->tranc_id_ == tranc_id) {
+    // std::cout << "key1: " << curr->key_ << ", tranc_id: " << tranc_id << std::endl;
     return SkipListIterator(prevs[0]->forward_[0]);
   }
   // TODO: 并且你后续需要额外实现SkipListIterator中的TODO部分(Lab1.2)
@@ -139,13 +152,15 @@ void SkipList::remove(const std::string &key) {
   if(prevs[0]->forward_[0] == nullptr || prevs[0]->forward_[0]->key_ != key) {
     return;
   }
+  size_bytes -= prevs[0]->forward_[0]->key_.size() + prevs[0]->forward_[0]->value_.size() + sizeof(uint64_t);
   auto curr = prevs[0]->forward_[0];
   for (int i = 0; i < current_level; i ++) {
     if (prevs[i]->forward_[i] != curr) {
       break;
     }
     prevs[i]->forward_[i] = curr->forward_[i];
-    curr->forward_[i]->backward_[i] =  prevs[i];
+    if (curr->forward_[i] != nullptr)
+      curr->forward_[i]->set_backward(i, prevs[i]);
   }
   while(current_level > 1 && head->forward_[current_level - 1] == nullptr) {
     current_level --;
