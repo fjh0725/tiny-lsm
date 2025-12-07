@@ -141,10 +141,10 @@ public:
   void clear(); // 清空跳表，释放内存
 
   SkipListIterator begin();
-  SkipListIterator begin_preffix(const std::string &preffix);
+  SkipListIterator begin_preffix(const std::string &prefix);
 
   SkipListIterator end();
-  SkipListIterator end_preffix(const std::string &preffix);
+  SkipListIterator end_preffix(const std::string &prefix);
 
   std::optional<std::pair<SkipListIterator, SkipListIterator>>
   iters_monotony_predicate(std::function<int(const std::string &)> predicate);

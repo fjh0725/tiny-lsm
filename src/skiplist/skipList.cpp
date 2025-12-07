@@ -214,14 +214,33 @@ SkipListIterator SkipList::end() {
 
 // 找到前缀的起始位置
 // 返回第一个前缀匹配或者大于前缀的迭代器
-SkipListIterator SkipList::begin_preffix(const std::string &preffix) {
-  // TODO: Lab1.3 任务：实现前缀查询的起始位置
+SkipListIterator SkipList::begin_preffix(const std::string &prefix) {
+  auto prevs = std::vector<std::shared_ptr<SkipListNode>>(current_level, head);
+  FindLessThan(prevs, prefix); // 找到最后一个小于 preffix 的节点
+  auto curr = prevs[0]->forward_[0];
+  int len = prefix.size();
+  if(curr != nullptr && curr->key_.substr(0,len) == prefix) {
+    return SkipListIterator(prevs[0]->forward_[0]);
+  }
   return SkipListIterator{};
 }
 
 // 找到前缀的终结位置
 SkipListIterator SkipList::end_preffix(const std::string &prefix) {
-  // TODO: Lab1.3 任务：实现前缀查询的终结位置
+  // 找到第一个大于prefix的节点
+  int len = prefix.size();
+  auto prefix_next = prefix;
+  if (prefix_next[len - 1] == static_cast<char>(255)) {
+    prefix_next += static_cast<char>(0);
+  } else {
+    prefix_next[len - 1] += 1; // 假设最后一个字符不是255
+  }
+  auto prevs = std::vector<std::shared_ptr<SkipListNode>>(current_level, head);
+  FindLessThan(prevs, prefix_next); // 找到最后一个小于 prefix_next 的节点
+  auto curr = prevs[0];
+  if(curr != nullptr && curr->key_.substr(0,len) == prefix) {
+    return SkipListIterator(prevs[0]->forward_[0]);
+  }
   return SkipListIterator{};
 }
 
@@ -238,7 +257,33 @@ SkipListIterator SkipList::end_preffix(const std::string &prefix) {
 std::optional<std::pair<SkipListIterator, SkipListIterator>>
 SkipList::iters_monotony_predicate(
     std::function<int(const std::string &)> predicate) {
-  // TODO: Lab1.3 任务：实现谓词查询的起始位置
+  auto cur = head;
+  bool hit = false;
+  for (int level = current_level - 1; !hit && level >= 0; level --) {
+    while(cur->forward_[level] != nullptr) {
+      if (predicate(cur->forward_[level]->key_) == 0) {
+        cur = cur->forward_[level];
+        hit = true;
+        break;
+      } else if (predicate(cur->forward_[level]->key_) > 0){
+        cur =  cur->forward_[level];
+      } else {
+        break;  
+      }
+    }
+  }
+
+  if (hit) {
+    auto start = cur;
+    while(start->backward_[0].lock() && predicate(start->backward_[0].lock()->key_) == 0) {
+      start = start->backward_[0].lock();
+    }
+    auto end = cur->forward_[0];
+    while(end != nullptr && predicate(end->key_) == 0) {
+      end = end->forward_[0];
+    }
+    return std::make_optional(std::make_pair(SkipListIterator(start), SkipListIterator(end)));
+  }
   return std::nullopt;
 }
 
